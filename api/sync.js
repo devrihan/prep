@@ -26,7 +26,13 @@ const readDoc = async () => {
 
 export default async function handler(req, res) {
   res.setHeader("Cache-Control", "no-store");
-  if (!URL_ || !TOKEN || !process.env.SYNC_KEY) return res.status(503).json({ error: "Sync not configured on the server" });
+  // Name what's missing (never values) so setup problems are easy to spot.
+  const missing = [
+    !URL_ && "KV_REST_API_URL (connect Upstash Redis in Vercel → Storage)",
+    !TOKEN && "KV_REST_API_TOKEN (connect Upstash Redis in Vercel → Storage)",
+    !process.env.SYNC_KEY && "SYNC_KEY",
+  ].filter(Boolean);
+  if (missing.length) return res.status(503).json({ error: `Server missing env var: ${missing.join(", ")}. Add it, then redeploy.` });
   if (req.headers["x-sync-key"] !== process.env.SYNC_KEY) return res.status(401).json({ error: "Wrong passphrase" });
 
   try {

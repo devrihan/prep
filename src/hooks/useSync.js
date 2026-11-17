@@ -41,6 +41,7 @@ export default function useSync({ state, setState, notesApi }) {
   const [syncKey, setSyncKeyState] = useState(() => readLS(KEY_STORE));
   const [status, setStatus] = useState(syncKey ? "syncing" : "off");
   const [lastSynced, setLastSynced] = useState(null);
+  const [detail, setDetail] = useState(""); // exact reason when something's wrong
 
   const data = { completed: state.completed, custom: state.custom, notes: { folders: notesApi.folders, notes: notesApi.notes } };
   const json = JSON.stringify(data);
@@ -65,14 +66,17 @@ export default function useSync({ state, setState, notesApi }) {
       headers: { "x-sync-key": syncKey, ...(body ? { "Content-Type": "application/json" } : {}) },
       body: body ? JSON.stringify(body) : undefined,
     });
-    if (r.status === 401) throw Object.assign(new Error(), { status: "auth" });
-    if (r.status === 404 || r.status === 503 || !(r.headers.get("content-type") || "").includes("json"))
-      throw Object.assign(new Error(), { status: "unavailable" });
-    return { code: r.status, body: await r.json() };
+    const isJson = (r.headers.get("content-type") || "").includes("json");
+    const body = isJson ? await r.json().catch(() => ({})) : null;
+    if (r.status === 401) throw Object.assign(new Error(), { status: "auth", detail: "Passphrase doesn't match SYNC_KEY on Vercel." });
+    if (!isJson || r.status === 404)
+      throw Object.assign(new Error(), { status: "unavailable", detail: "No /api/sync function found. Running locally with npm run dev, or api/ wasn't deployed." });
+    if (r.status >= 500) throw Object.assign(new Error(), { status: "unavailable", detail: body?.error || `Server error ${r.status}` });
+    return { code: r.status, body };
   }, [syncKey]);
 
-  const fail = (e) => setStatus(e.status || "offline");
-  const ok = () => { setStatus("synced"); setLastSynced(Date.now()); };
+  const fail = (e) => { setStatus(e.status || "offline"); setDetail(e.detail || "Couldn't reach the server. Will retry."); };
+  const ok = () => { setStatus("synced"); setLastSynced(Date.now()); setDetail(""); };
 
   // Bring in the other laptop's changes. If this copy also has unsaved changes, merge them.
   const handleRemote = useCallback((doc) => {
@@ -148,5 +152,5 @@ export default function useSync({ state, setState, notesApi }) {
     setStatus(v ? "syncing" : "off");
   };
 
-  return { status, lastSynced, syncKey, setSyncKey, syncNow: pull };
+  return { status, detail, lastSynced, syncKey, setSyncKey, syncNow: pull };
 }

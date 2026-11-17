@@ -29,7 +29,7 @@ const SYNC_LABEL = {
 };
 
 function SyncBadge({ sync }) {
-  const { status, lastSynced, setSyncKey, syncNow, syncKey } = sync;
+  const { status, detail, lastSynced, setSyncKey, syncNow, syncKey } = sync;
   const bad = status === "auth" || status === "offline" || status === "off";
   const Icon = status === "syncing" ? RefreshCw : bad || status === "unavailable" ? CloudOff : Cloud;
   const ago = lastSynced ? Math.max(0, Math.round((Date.now() - lastSynced) / 60000)) : null;
@@ -38,13 +38,16 @@ function SyncBadge({ sync }) {
     if (k !== null) setSyncKey(k);
   };
   return (
+    <div>
     <div className="flex items-center gap-1">
-      <button onClick={status === "off" || status === "auth" ? askKey : syncNow} title={status === "synced" ? "Sync now" : SYNC_LABEL[status]}
+      <button onClick={status === "off" || status === "auth" ? askKey : syncNow} title={status === "synced" ? "Sync now" : detail || SYNC_LABEL[status]}
         className={`flex min-w-0 flex-1 items-center gap-2 rounded-lg px-3 py-2 text-xs ${bad ? "text-amber-400 hover:bg-amber-500/10" : "text-zinc-400 hover:bg-zinc-900"}`}>
         <Icon size={14} className={`shrink-0 ${status === "syncing" ? "animate-spin" : status === "synced" ? "text-emerald-400" : ""}`} />
         <span className="truncate">{SYNC_LABEL[status]}{status === "synced" && ago !== null ? ` · ${ago ? `${ago}m ago` : "just now"}` : ""}</span>
       </button>
       {status !== "off" && <button onClick={askKey} title="Change passphrase" className="rounded-lg p-2 text-zinc-600 hover:bg-zinc-900 hover:text-zinc-300"><KeyRound size={13} /></button>}
+    </div>
+    {detail && status !== "synced" && status !== "syncing" && <p className="px-3 pb-1 text-[11px] leading-snug text-zinc-500">{detail}</p>}
     </div>
   );
 }
@@ -164,6 +167,7 @@ export default function App() {
               <button onClick={() => fileRef.current?.click()} className="rounded-lg border border-zinc-800 bg-zinc-900 p-2"><Upload size={16} /></button>
             </div>
           </div>
+          <div className="-mt-3 mb-5 md:hidden"><SyncBadge sync={sync} /></div>
           <input ref={fileRef} type="file" accept="application/json,.json" className="hidden" onChange={importJson} />
 
           {page === "dashboard" && (
