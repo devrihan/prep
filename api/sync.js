@@ -5,8 +5,11 @@
 //   PUT  /api/sync            body { baseUpdatedAt, data } -> { updatedAt }
 //                              409 { updatedAt, data } if another laptop saved in between.
 
-const URL_ = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
-const TOKEN = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
+// Vercel's Upstash integration names these KV_REST_API_URL / KV_REST_API_TOKEN, but a custom
+// prefix (e.g. STORAGE_KV_REST_API_URL) or Upstash's own names are accepted too.
+const findEnv = (re) => Object.keys(process.env).filter((k) => re.test(k) && !/READ_ONLY/.test(k)).map((k) => process.env[k])[0];
+const URL_ = process.env.KV_REST_API_URL || findEnv(/(KV_REST_API|REDIS_REST)_URL$/);
+const TOKEN = process.env.KV_REST_API_TOKEN || findEnv(/(KV_REST_API|REDIS_REST)_TOKEN$/);
 const KEY = "prep-tracker:doc";
 
 async function redis(cmd) {
