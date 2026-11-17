@@ -67,12 +67,12 @@ export default function useSync({ state, setState, notesApi }) {
       body: body ? JSON.stringify(body) : undefined,
     });
     const isJson = (r.headers.get("content-type") || "").includes("json");
-    const body = isJson ? await r.json().catch(() => ({})) : null;
+    const res = isJson ? await r.json().catch(() => ({})) : null;
     if (r.status === 401) throw Object.assign(new Error(), { status: "auth", detail: "Passphrase doesn't match SYNC_KEY on Vercel." });
     if (!isJson || r.status === 404)
       throw Object.assign(new Error(), { status: "unavailable", detail: "No /api/sync function found. Running locally with npm run dev, or api/ wasn't deployed." });
-    if (r.status >= 500) throw Object.assign(new Error(), { status: "unavailable", detail: body?.error || `Server error ${r.status}` });
-    return { code: r.status, body };
+    if (r.status >= 500) throw Object.assign(new Error(), { status: "unavailable", detail: res?.error || `Server error ${r.status}` });
+    return { code: r.status, body: res };
   }, [syncKey]);
 
   const fail = (e) => { setStatus(e.status || "offline"); setDetail(e.detail || "Couldn't reach the server. Will retry."); };
