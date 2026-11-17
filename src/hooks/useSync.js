@@ -8,31 +8,56 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 const KEY_STORE = "sde1-sync-key";
 const BASE_STORE = "sde1-sync-base";
+const SNAP_STORE = "sde1-sync-snapshot"; // copy of what the server held at the last sync
 const PUSH_DELAY = 1500;
 const PULL_EVERY = 60000;
 
 const readLS = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
 const writeLS = (k, v) => { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch {} };
 
-const unionById = (a = [], b = []) => {
-  const seen = new Set(a.map((x) => x.id));
-  return [...a, ...b.filter((x) => !seen.has(x.id))];
-};
+const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
-// Used only when both laptops changed things before seeing each other's save.
-function merge(local, remote) {
-  const byId = new Map();
-  [...remote.notes.notes, ...local.notes.notes].forEach((n) => {
-    const prev = byId.get(n.id);
-    if (!prev || (n.updatedAt || 0) >= (prev.updatedAt || 0)) byId.set(n.id, n);
-  });
-  const customKeys = new Set([...Object.keys(remote.custom || {}), ...Object.keys(local.custom || {})]);
+// Apply this device's changes (base → local) on top of the other device's copy (remote).
+// Because it works from what actually changed here, unticks and deletes stick instead of
+// being "merged back" from the other side.
+function mergeMap(base = {}, local = {}, remote = {}) {
+  const out = { ...remote };
+  for (const k of new Set([...Object.keys(base), ...Object.keys(local)])) {
+    if (same(base[k], local[k])) continue;          // untouched here → keep remote's value
+    if (k in local) out[k] = local[k]; else delete out[k];
+  }
+  return out;
+}
+
+function mergeList(base = [], local = [], remote = [], { prepend = false } = {}) {
+  const B = new Map(base.map((x) => [x.id, x]));
+  const L = new Map(local.map((x) => [x.id, x]));
+  const out = new Map(remote.map((x) => [x.id, x]));
+  const added = [];
+  for (const id of new Set([...B.keys(), ...L.keys()])) {
+    const b = B.get(id), l = L.get(id);
+    if (same(b, l)) continue;                       // untouched here
+    if (!l) { out.delete(id); continue; }           // deleted here
+    const r = out.get(id);
+    // Edited on both devices → keep the newer edit.
+    if (r && b && !same(r, b) && (r.updatedAt || 0) > (l.updatedAt || 0)) continue;
+    if (r) out.set(id, l); else added.push(l);
+  }
+  const rest = [...out.values()];
+  return prepend ? [...added, ...rest] : [...rest, ...added];
+}
+
+const EMPTY = { completed: {}, custom: {}, notes: { folders: [], notes: [] } };
+
+function merge(base, local, remote) {
+  base = base || EMPTY; // first sync on this device: treat everything here as new
+  const keys = new Set([...Object.keys(remote.custom || {}), ...Object.keys(local.custom || {})]);
   return {
-    completed: { ...remote.completed, ...local.completed },
-    custom: Object.fromEntries([...customKeys].map((k) => [k, unionById(local.custom?.[k], remote.custom?.[k])])),
+    completed: mergeMap(base.completed, local.completed, remote.completed),
+    custom: Object.fromEntries([...keys].map((k) => [k, mergeList(base.custom?.[k], local.custom?.[k], remote.custom?.[k])])),
     notes: {
-      folders: unionById(local.notes.folders, remote.notes.folders),
-      notes: [...byId.values()].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)),
+      folders: mergeList(base.notes?.folders, local.notes.folders, remote.notes.folders),
+      notes: mergeList(base.notes?.notes, local.notes.notes, remote.notes.notes, { prepend: true }),
     },
   };
 }
@@ -47,13 +72,14 @@ export default function useSync({ state, setState, notesApi }) {
   const json = JSON.stringify(data);
 
   const base = useRef(Number(readLS(BASE_STORE)) || 0); // server version this copy is based on
-  const syncedJson = useRef(null);                        // what the server holds, as far as we know
+  const syncedJson = useRef(readLS(SNAP_STORE));          // what the server holds, as far as we know (survives reloads)
   const ready = useRef(false);                            // never push before the first pull
   const busy = useRef(false);
   const latest = useRef({ data, json });
   latest.current = { data, json };
 
   const setBase = (v) => { base.current = v; writeLS(BASE_STORE, String(v)); };
+  const setSynced = (j) => { syncedJson.current = j; writeLS(SNAP_STORE, j); };
 
   const apply = useCallback((d) => {
     setState({ completed: d.completed || {}, custom: d.custom || { dsa: [], dev: [] } });
@@ -82,10 +108,11 @@ export default function useSync({ state, setState, notesApi }) {
   const handleRemote = useCallback((doc) => {
     const local = latest.current;
     const dirty = local.json !== syncedJson.current;
+    const baseData = syncedJson.current ? JSON.parse(syncedJson.current) : null;
     setBase(doc.updatedAt);
-    syncedJson.current = JSON.stringify(doc.data);
-    if (dirty) apply(merge(local.data, doc.data)); // differs from server → the push effect saves the merge
-    else apply(doc.data);
+    setSynced(JSON.stringify(doc.data));
+    // Unsaved changes here → replay them on top of the newer copy; the push effect then saves it.
+    apply(dirty ? merge(baseData, local.data, doc.data) : doc.data);
   }, [apply]);
 
   const pull = useCallback(async () => {
@@ -93,10 +120,10 @@ export default function useSync({ state, setState, notesApi }) {
     busy.current = true;
     try {
       const { body: doc } = await call("GET");
-      if (!doc.data) syncedJson.current = null;                   // empty server: the first push uploads this copy
-      else if (doc.updatedAt > base.current) handleRemote(doc);   // other laptop saved since we last looked
-      else if (doc.updatedAt === base.current) syncedJson.current = JSON.stringify(doc.data); // same version; push only if we edited
-      else { setBase(0); syncedJson.current = null; }             // server was reset: re-upload this copy
+      if (!doc.data) setSynced(null);                             // empty server: the first push uploads this copy
+      else if (doc.updatedAt > base.current) handleRemote(doc);   // other device saved since we last looked
+      else if (doc.updatedAt === base.current) setSynced(JSON.stringify(doc.data)); // same version; push only if we edited
+      else { setBase(0); setSynced(null); }                       // server was reset: re-upload this copy
       ready.current = true;
       ok();
     } catch (e) { fail(e); }
@@ -112,7 +139,7 @@ export default function useSync({ state, setState, notesApi }) {
     try {
       const { code, body } = await call("PUT", { baseUpdatedAt: base.current, data: d });
       if (code === 409) handleRemote(body);
-      else if (code === 200) { setBase(body.updatedAt); syncedJson.current = j; ok(); }
+      else if (code === 200) { setBase(body.updatedAt); setSynced(j); ok(); }
       else throw new Error();
     } catch (e) { fail(e); }
     finally { busy.current = false; }
@@ -147,7 +174,7 @@ export default function useSync({ state, setState, notesApi }) {
     const v = k?.trim() || null;
     writeLS(KEY_STORE, v);
     setBase(0);
-    syncedJson.current = null;
+    setSynced(null);
     setSyncKeyState(v);
     setStatus(v ? "syncing" : "off");
   };
