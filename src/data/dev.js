@@ -13,7 +13,7 @@ export const DEV_TOPICS = [
   { key: "js", label: "JavaScript" },
   { key: "ts", label: "TypeScript" },
   { key: "react", label: "React" },
-  { key: "node", label: "Node / Express" },
+  { key: "node", label: "Backend" },
   { key: "misc", label: "Miscellaneous", untracked: true }, // also catches older items with no topic
 ];
 
