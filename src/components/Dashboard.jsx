@@ -1,12 +1,13 @@
 import React, { useMemo } from "react";
-import { Flame, Clock, CheckCircle2, FileText, ArrowRight } from "lucide-react";
+import { Flame, Clock, CheckCircle2, FileText, ArrowRight, CalendarDays, Check } from "lucide-react";
 import Ring from "./Ring.jsx";
 import { PILLARS, toSeconds } from "../pillars.js";
+import { TOPICS, todayEntry, dayHours, weekStart, sessionKey } from "../data/schedule.js";
 
 const DAY = 86400000;
 const startOfDay = (t) => { const d = new Date(t); d.setHours(0, 0, 0, 0); return d.getTime(); };
 
-export default function Dashboard({ stats, itemsByPillar, completed, notes, onNavigate }) {
+export default function Dashboard({ stats, itemsByPillar, completed, notes, onNavigate, onToggle }) {
   const streak = useMemo(() => {
     const today = startOfDay(Date.now());
     const counts = {};
@@ -23,6 +24,10 @@ export default function Dashboard({ stats, itemsByPillar, completed, notes, onNa
   const hours = (doneSeconds / 3600).toFixed(1);
 
   const recentNotes = [...notes].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 4);
+
+  const today = todayEntry();
+  const todayKey = sessionKey(weekStart(), today.key);
+  const todayDone = !!completed[todayKey];
 
   const chips = [
     { icon: Flame, label: "Day streak", value: streak, color: "text-orange-400" },
@@ -53,6 +58,24 @@ export default function Dashboard({ stats, itemsByPillar, completed, notes, onNa
             </div>
           </div>
         </div>
+      </section>
+
+      <section className="flex flex-wrap items-center gap-4 rounded-2xl border border-zinc-800 bg-zinc-900/70 p-5">
+        <div className="rounded-xl bg-sky-500/15 p-2.5 text-sky-400"><CalendarDays size={20} /></div>
+        <div className="min-w-0 flex-1">
+          <div className="text-xs uppercase tracking-wide text-zinc-500">Today · {today.name} · {dayHours(today)} hr{dayHours(today) > 1 ? "s" : ""}</div>
+          <div className="mt-1.5 flex flex-wrap gap-2">
+            {today.sessions.map((s, i) => {
+              const t = TOPICS[s.topic]; const Icon = t.icon;
+              return <span key={i} className={`flex items-center gap-1.5 rounded-lg border ${t.border} ${t.bg} px-2.5 py-1 text-sm font-medium ${t.text}`}><Icon size={14} /> {t.label}</span>;
+            })}
+          </div>
+        </div>
+        <button onClick={() => onToggle(todayKey)}
+          className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition ${todayDone ? "border-emerald-500/40 bg-emerald-500/15 text-emerald-300" : "border-zinc-700 text-zinc-300 hover:bg-zinc-800"}`}>
+          <Check size={15} /> {todayDone ? "Done today" : "Mark done"}
+        </button>
+        <button onClick={() => onNavigate("schedule")} className="text-sm text-indigo-400 hover:underline">Full week</button>
       </section>
 
       <section className="grid gap-4 md:grid-cols-3">

@@ -1,10 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Download, Upload, LayoutDashboard, NotebookPen, GraduationCap, Cloud, CloudOff, RefreshCw, KeyRound } from "lucide-react";
+import { Download, Upload, LayoutDashboard, NotebookPen, GraduationCap, CalendarDays, FolderOpen, Cloud, CloudOff, RefreshCw, KeyRound } from "lucide-react";
 import { PILLARS, pct } from "./pillars.js";
 import Dashboard from "./components/Dashboard.jsx";
 import PillarView from "./components/PillarView.jsx";
 import NotesView from "./components/NotesView.jsx";
 import DevView from "./components/DevView.jsx";
+import ScheduleView from "./components/ScheduleView.jsx";
+import ResourcesView from "./components/ResourcesView.jsx";
 import { isMiscDev } from "./data/dev.js";
 import useNotes, { NotesContext } from "./hooks/useNotes.js";
 import useSync from "./hooks/useSync.js";
@@ -54,8 +56,10 @@ function SyncBadge({ sync }) {
 
 const NAV = [
   { key: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { key: "schedule", label: "Schedule", icon: CalendarDays },
   ...PILLARS.map((p) => ({ key: p.key, label: p.label, icon: p.icon })),
   { key: "notes", label: "Notes", icon: NotebookPen },
+  { key: "resources", label: "Resources", icon: FolderOpen },
 ];
 
 export default function App() {
@@ -171,7 +175,7 @@ export default function App() {
           <input ref={fileRef} type="file" accept="application/json,.json" className="hidden" onChange={importJson} />
 
           {page === "dashboard" && (
-            <Dashboard stats={stats} itemsByPillar={trackedByPillar} completed={state.completed} notes={notesApi.notes} onNavigate={setPage} />
+            <Dashboard stats={stats} itemsByPillar={trackedByPillar} completed={state.completed} notes={notesApi.notes} onNavigate={setPage} onToggle={toggle} />
           )}
           {page === "dev" && (
             <DevView
@@ -196,6 +200,8 @@ export default function App() {
               onRemove={(id) => removeCustom(page, id)}
             />
           )}
+          {page === "schedule" && <ScheduleView completed={state.completed} onToggle={toggle} onNavigate={setPage} />}
+          {page === "resources" && <ResourcesView />}
           {page === "notes" && <NotesView notesApi={notesApi} />}
         </div>
       </main>
